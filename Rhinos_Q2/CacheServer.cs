@@ -80,7 +80,6 @@ namespace CacheServer
         private void ReceiveCallback(IAsyncResult ar)
         {
             Socket clientSocket = (Socket)ar.AsyncState;
-            clientSocket.Send(Encoding.UTF8.GetBytes(""));
             int received;
             try
             {
@@ -103,9 +102,6 @@ namespace CacheServer
             }
             else if (text == "\r\n")
             {
-                Console.WriteLine("ENTER!");
-
-
                 string[] command = SplitBySpaces(_clientMsgs[clientSocket]);
 
                 if (_duringSetCommand[clientSocket])
@@ -147,15 +143,13 @@ namespace CacheServer
 
                 if (!_duringSetCommand[clientSocket])
                     _clientMsgs[clientSocket] = "";
-
             }
             else
             {
                 _clientMsgs[clientSocket] = (_clientMsgs[clientSocket] + text);
             }
 
-            //Console.WriteLine("text_len = " + text.Length + " ,Received: " + clientMsgs[socket]);
-
+            //Console.WriteLine("text_len = " + text.Length + " ,SequenceReceived: " + clientMsgs[socket]);
             clientSocket.BeginReceive(_char_buffer, 0, CHAR_BUFFER_SIZE, SocketFlags.None, ReceiveCallback, clientSocket);
         }
 
