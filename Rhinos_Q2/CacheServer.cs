@@ -7,6 +7,18 @@ using System.Text;
 
 namespace CacheServer
 {
+    class Program
+    {
+        public static void Main()
+        {
+            MyServer myServer = new MyServer(10011, 128000);
+            Console.Title = "Cache Server";
+            myServer.SetupServer();
+            Console.ReadLine(); // When we press enter close everything
+            myServer.CloseAllSockets();
+        }
+    }
+
     class MyServer
     {
         private readonly Socket _serverSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
@@ -24,15 +36,6 @@ namespace CacheServer
         private int _port;
 
         private Mutex _update_cache_mutex;
-
-        public static void Main()
-        {
-            MyServer myServer = new MyServer(10011 ,128000);
-            Console.Title = "Cache Server";
-            myServer.SetupServer();
-            Console.ReadLine(); // When we press enter close everything
-            myServer.CloseAllSockets();
-        }
 
         public MyServer(int port, int max_values_size)
         {
@@ -52,7 +55,7 @@ namespace CacheServer
             _update_cache_mutex = new Mutex();
         }
 
-        private void SetupServer()
+        public void SetupServer()
         {
             Console.WriteLine("Setting up server...");
             _serverSocket.Bind(new IPEndPoint(IPAddress.Any, _port));
@@ -175,7 +178,10 @@ namespace CacheServer
             threadSafeAddToCache(key, val);
         }
 
-
+        /*Add/Update value by key and clean some old entities from cache 
+           if it's values size reaches to max size
+            - Thread safe action
+        */
         private void threadSafeAddToCache(string key, string val)
         {
             _update_cache_mutex.WaitOne(); //open critical section
@@ -234,7 +240,7 @@ namespace CacheServer
         }
 
         /*Close all connections*/
-        private void CloseAllSockets()
+        public void CloseAllSockets()
         {
             foreach (Socket cs in _clientSockets)
             {
