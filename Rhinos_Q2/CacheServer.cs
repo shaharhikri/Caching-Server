@@ -26,7 +26,7 @@ namespace CacheServer
 
         private Dictionary<Socket, string> _clientMsgs;
         private Dictionary<Socket, bool> _duringSetCommand;
-        private Dictionary<string, byte[]> _chacheDict;
+        private ConcurrentDictionary<string, byte[]> _chacheDict;
 
         private int _values_size;
         private int _max_values_size;
@@ -35,7 +35,7 @@ namespace CacheServer
         private const int CHAR_BUFFER_SIZE = 2;
         private int _port;
 
-        private Mutex _update_cache_mutex;
+        private Mutex _values_size_mutex;
 
         public MyServer(int port, int max_values_size)
         {
@@ -44,7 +44,7 @@ namespace CacheServer
 
             this._clientMsgs = new Dictionary<Socket, string>();
             this._duringSetCommand = new Dictionary<Socket, bool>();
-            this._chacheDict = new Dictionary<string, byte[]>();
+            this._chacheDict = new ConcurrentDictionary<string, byte[]>();
 
             this._values_size = 0;
             this._max_values_size = max_values_size;
@@ -52,7 +52,7 @@ namespace CacheServer
             this._char_buffer = new byte[CHAR_BUFFER_SIZE];
             this._port = port;
 
-            _update_cache_mutex = new Mutex();
+            _values_size_mutex = new Mutex();
         }
 
         public void SetupServer()
@@ -120,13 +120,14 @@ namespace CacheServer
                 }
                 else if (command.Length == 2 && command[0] == "get")
                 {
-                    try
+                    string key = command[1];
+                    byte[] bytes_val;
+                    if(_chacheDict.TryGetValue(key, out bytes_val))
                     {
-                        string key = command[1];
-                        string val = Encoding.UTF8.GetString(_chacheDict[key]);
+                        string val = Encoding.UTF8.GetString(bytes_val);
                         clientSocket.Send(Encoding.UTF8.GetBytes("OK " + val.Length + "\r\n" + val + "\r\n"));
                     }
-                    catch (System.Collections.Generic.KeyNotFoundException e)
+                    else
                     {
                         clientSocket.Send(Encoding.UTF8.GetBytes("MISSING\r\n"));
                     }
@@ -153,7 +154,10 @@ namespace CacheServer
             clientSocket.BeginReceive(_char_buffer, 0, CHAR_BUFFER_SIZE, SocketFlags.None, ReceiveCallback, clientSocket);
         }
 
-        /*Perform "set" command by client*/
+        /*Perform "set" command by client.
+          Add/Update (size fixed) value by key and clean some old entities from cache 
+          if it's values size reaches to max size
+          - Thread safe action */
         private void setCommand(string key, string val, int val_len)
         {
             if (val_len < val.Length)
@@ -169,28 +173,17 @@ namespace CacheServer
                 }
             }
 
-            threadSafeAddToCache(key, val);
-        }
+            byte[] bytes_val = Encoding.UTF8.GetBytes(val);
+            int old_val_len = 0;
+            _chacheDict.AddOrUpdate(key, bytes_val, (key, existingVal) => {
+                old_val_len = existingVal.Length;
+                return bytes_val; 
+            });
 
-        /*Add/Update value by key and clean some old entities from cache 
-           if it's values size reaches to max size
-            - Thread safe action
-        */
-        private void threadSafeAddToCache(string key, string val)
-        {
-            _update_cache_mutex.WaitOne(); //open critical section
-            try
-            {
-                _chacheDict.Add(key, Encoding.UTF8.GetBytes(val));
-            }
-            catch (System.ArgumentException e)
-            {
-                _values_size -= _chacheDict[key].Length;
-                _chacheDict[key] = Encoding.UTF8.GetBytes(val);
-            }
-            _values_size += val.Length;
 
-            //Clean some cache if it's overflow
+            _values_size_mutex.WaitOne(); //open critical section ********
+            _values_size = _values_size - old_val_len + val_len;
+            //clean cache (size) - clean some old entities from cache if it's values size reaches to max size
             if (_values_size > _max_values_size)
             {
                 List<string> keys = new List<string>(_chacheDict.Keys); //Ordered by last set time
@@ -198,13 +191,14 @@ namespace CacheServer
                 foreach (string k in keys)
                 {
                     _values_size -= _chacheDict[k].Length;
-                    _chacheDict.Remove(k);
+                    byte[] removed_val;
+                    _chacheDict.TryRemove(k, out removed_val);
+                    Console.WriteLine("Removed key:" + k);
                     if (_values_size <= (_max_values_size / 2))
                         break;
                 }
             }
-            //Thread.Sleep(10000); //checking mutex
-            _update_cache_mutex.ReleaseMutex(); //close critical section
+            _values_size_mutex.ReleaseMutex(); //close critical section ****
         }
 
         /*  Split string by spaces
