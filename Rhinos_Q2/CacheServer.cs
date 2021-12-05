@@ -11,7 +11,7 @@ namespace CacheServer
     {
         public static void Main()
         {
-            MyServer myServer = new MyServer(10011, 128000);
+            MyServer myServer = new MyServer(10011, 128000000); //PORT 10011, 128 MegaBytes
             Console.Title = "Cache Server";
             myServer.SetupServer();
             Console.ReadLine(); // When we press enter close everything
